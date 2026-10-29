@@ -16,10 +16,15 @@ export default function Workbench({ user, onLogout }) {
   const [pending, setPending] = useState([])   // 已选待上传（点「开始转换」才真正上传）
   const fileRef = useRef(null)
 
+  const [loadFailed, setLoadFailed] = useState(false)
+
   const load = useCallback(async () => {
     try {
       setRows(await api.history())
+      setLoadFailed(false)
+      setNotice((n) => (n && n.type === 'err' ? null : n)) // 成功即清掉残留报错
     } catch (e) {
+      setLoadFailed(true)
       setNotice({ type: 'err', text: e.message })
     }
   }, [])
@@ -27,6 +32,13 @@ export default function Workbench({ user, onLogout }) {
   useEffect(() => {
     load()
   }, [load])
+
+  // 加载失败后自动重试：网络恢复时红条自动消失，不用手动刷新
+  useEffect(() => {
+    if (!loadFailed) return undefined
+    const timer = setInterval(load, 5000)
+    return () => clearInterval(timer)
+  }, [loadFailed, load])
 
   // 深链接：/?score=12 直接打开某份谱（便于把谱子链接发给搭档）
   useEffect(() => {
