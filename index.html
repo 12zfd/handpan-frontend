@@ -601,6 +601,25 @@ async function detectBase(){
 }
 function apiUrl(path){ return BASE + path; }
 
+/* ------------------------------------------------------------------ 故障自诊断
+   后端 5xx 现在会带 CORS 头，所以能读到 body；但若是真·网络不通（服务挂了/被墙），
+   fetch 会直接 reject。这里先用 /healthz?deep=1 探一次，把「网络不通」和
+   「数据库炸了」区分开，避免再一律报「连不上后端服务」误导排查方向。        */
+function diagnoseBackend(){
+  return fetch(apiUrl('/healthz?deep=1'), {method:'GET', cache:'no-store'})
+    .then(function(res){ return res.json().catch(function(){ return null; }); })
+    .then(function(b){
+      if(!b) return '连不上后端服务（网络不通或后端未启动）';
+      if(b.db === 'unavailable'){
+        return '后端服务在运行，但数据库不可用：' + (b.error || '未知原因');
+      }
+      return '连不上后端服务（网络不通或后端未启动）';
+    })
+    .catch(function(){
+      return '连不上后端服务（网络不通或后端未启动）';
+    });
+}
+
 /* ------------------------------------------------------------------ 请求 */
 function request(path, opts){
   opts = opts || {};
@@ -630,7 +649,7 @@ function request(path, opts){
     })
     .catch(function(e){
       if(e && e.message && /Failed to fetch|NetworkError|load failed/i.test(e.message)){
-        throw new Error('连不上后端服务（可能是跨域被拦或网络不通）');
+        return diagnoseBackend().then(function(msg){ throw new Error(msg); });
       }
       throw e;
     });
@@ -680,7 +699,7 @@ var api = {
       })
       .catch(function(e){
         if(e && e.message && /Failed to fetch|NetworkError/i.test(e.message)){
-          throw new Error('连不上后端服务，请确认后端已启动');
+          return diagnoseBackend().then(function(msg){ throw new Error(msg); });
         }
         throw e;
       });
